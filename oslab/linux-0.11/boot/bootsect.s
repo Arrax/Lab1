@@ -1,3 +1,4 @@
+
 .globl begtext, begdata, begbss, endtext, enddata, endbss
 .text
 begtext:
@@ -7,15 +8,19 @@ begdata:
 begbss:
 .text
 
-SETUPLEN = 4				! setup程序代码占用扇区数
-BOOTSEG  = 0x07c0			! bootsect程序代码所在内存原始地址
-INITSEG  = 0x9000			! 将bootsect移动到0x9000处
-SETUPSEG = 0x9020			! setup程序开始的地址
+SETUPLEN = 4				! nr of setup-sectors
+BOOTSEG  = 0x07c0			! original address of boot-sector
+INITSEG  = 0x9000			! we move boot here - out of the way
+SETUPSEG = 0x9020			! setup starts here
+SYSSEG   = 0x1000			! system loaded at 0x10000 (65536).
+ENDSEG   = SYSSEG + SYSSIZE		! where to stop loading
+
+! ROOT_DEV:	0x000 - same type of floppy as boot.
+!		0x301 - first partition on first drive etc
+ROOT_DEV = 0x306
 
 entry _start
 _start:
-
-! 下面这段代码将自身复制到0x9000处
 	mov	ax,#BOOTSEG
 	mov	ds,ax
 	mov	ax,#INITSEG
@@ -25,22 +30,24 @@ _start:
 	sub	di,di
 	rep
 	movw
-	
-! 复制完成从0x9000的go标号处开始执行
 	jmpi	go,INITSEG
 go:	mov	ax,cs
-	mov	ds,ax  !设置ds=es=cs
+	mov	ds,ax
 	mov	es,ax
+! put stack at 0x9ff00.
+	mov	ss,ax
+	mov	sp,#0xFF00		! arbitrary value >>512
 
-! 加载setup.s程序
-load_setup: 
+! load the setup-sectors directly after the bootblock.
+! Note that 'es' is already set up.
+
+load_setup:
 	mov	dx,#0x0000		! drive 0, head 0
 	mov	cx,#0x0002		! sector 2, track 0
 	mov	bx,#0x0200		! address = 512, in INITSEG
 	mov	ax,#0x0200+SETUPLEN	! service 2, nr of sectors
 	int	0x13			! read it
 	jnc	ok_load_setup		! ok - continue
-	！加载错误
 	mov	dx,#0x0000
 	mov	ax,#0x0000		! reset the diskette
 	int	0x13
@@ -48,28 +55,39 @@ load_setup:
 
 ok_load_setup:
 
-!输出一些信息
+! 不再输出磁盘信息
+
+! Print some inane message
 
 	mov	ah,#0x03		! read cursor pos
 	xor	bh,bh
 	int	0x10
 	
-	mov	cx,#27
-	mov	bx,#0x000c		! page 0, attribute c 
-	mov	bp,#msg1		! es:bp 指向待显示 字符串
+	mov	cx,#26
+	mov	bx,#0x0007		! page 0, attribute 7 (normal)
+	mov	bp,#msg1
 	mov	ax,#0x1301		! write string, move cursor
 	int	0x10
-!开始执行setup代码
-	jmpi 0,SETUPSEG
+
+! ok, we've written the message, now
+! 不再加载系统
+
+
+！加载Setup
+	jmpi	0,SETUPSEG
+
 
 msg1:
 	.byte 13,10
-	.ascii "Tonatus is booting..."
+	.ascii "Loading Mightusa ..."
 	.byte 13,10,13,10
 
-.org 510
+.org 508
+root_dev:
+	.word ROOT_DEV
 boot_flag:
 	.word 0xAA55
+
 .text
 endtext:
 .data
